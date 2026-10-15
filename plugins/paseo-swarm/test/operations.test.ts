@@ -3,7 +3,13 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { test } from "node:test";
-import type { PluginHandlerContext, PluginServerContext } from "@getpaseo/plugin/server";
+import type {
+  PluginHandlerContext,
+  PluginHookContext,
+  PluginLifecycleEvents,
+  PluginServerContext,
+} from "@getpaseo/plugin/server";
+import contribute from "../index.server";
 import { notifyManager, registerOperations } from "../server/operations";
 import { getConfigPath, getStatePath, StateStore, store } from "../server/state";
 import { emptyState, type AgentRecord } from "../shared/models";
@@ -398,6 +404,32 @@ test("supervisors require independent placement, workers keep caller defaults, a
         body: "Survey findings",
       }),
     );
+    await assert.rejects(
+      async () =>
+        invoke(
+          sendMessageRpc.name,
+          sendMessageRpc.input.parse({
+            senderName: "planner.supervisor.scout",
+            recipientName: "planner.supervisor",
+            recipientPaseoAgentId: worker.paseoAgentId,
+            body: "Mismatched recipient",
+          }),
+        ),
+      /does not match agent/,
+    );
+    await assert.rejects(
+      async () =>
+        invoke(
+          sendMessageRpc.name,
+          sendMessageRpc.input.parse({
+            senderName: "planner.supervisor.scout",
+            recipientName: "missing",
+            recipientPaseoAgentId: "missing-agent",
+            body: "Unknown recipient",
+          }),
+        ),
+      /Unknown active Swarm recipient/,
+    );
     state.tasks.push({
       id: "survey",
       title: "Survey",
@@ -410,6 +442,21 @@ test("supervisors require independent placement, workers keep caller defaults, a
       createdAt: planner.createdAt,
       updatedAt: planner.updatedAt,
     });
+    await assert.rejects(
+      async () =>
+        invoke(
+          sendMessageRpc.name,
+          sendMessageRpc.input.parse({
+            senderName: "planner.supervisor.scout",
+            actorName: "planner.supervisor.scout",
+            recipientName: "planner.supervisor.scout",
+            recipientPaseoAgentId: worker.paseoAgentId,
+            taskId: "survey",
+            body: "Not a task member",
+          }),
+        ),
+      /cannot send a message for Task survey/,
+    );
     await invoke(
       appendHumanActivityRpc.name,
       appendHumanActivityRpc.input.parse({
@@ -429,6 +476,139 @@ test("supervisors require independent placement, workers keep caller defaults, a
     else process.env.PASEO_HOME = previousHome;
     if (previousPwa === undefined) delete process.env.PASEO_SWARM_PWA_ROOT;
     else process.env.PASEO_SWARM_PWA_ROOT = previousPwa;
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("turn notifications use current-turn text without falling back to history", async (t) => {
+  const home = mkdtempSync(join(tmpdir(), "swarm-turn-notifications-"));
+  const previousHome = process.env.PASEO_HOME;
+  process.env.PASEO_HOME = home;
+  const manager: AgentRecord = {
+    id: "manager-record",
+    paseoAgentId: "manager-agent",
+    name: "manager",
+    qualifiedName: "manager",
+    aliases: [],
+    roleClass: "supervisor",
+    role: "supervisor",
+    reportsTo: null,
+    workspaceId: "workspace",
+    retired: false,
+    createdAt: "2026-10-06T00:00:00Z",
+    updatedAt: "2026-10-06T00:00:00Z",
+  };
+  const worker: AgentRecord = {
+    ...manager,
+    id: "worker-record",
+    paseoAgentId: "worker-agent",
+    name: "worker",
+    qualifiedName: "manager.worker",
+    roleClass: "worker",
+    role: "researcher",
+    reportsTo: "manager",
+  };
+  const hooks = new Map<string, (event: never, context: PluginHookContext) => unknown>();
+  const server: Pick<PluginServerContext, "handle" | "on"> = {
+    handle() {},
+    on(name, handler) {
+      hooks.set(name, handler);
+      return () => {};
+    },
+  };
+  const sends: Array<{ agentId: string; text: string; options: unknown }> = [];
+  const context = {
+    signal: new AbortController().signal,
+    paseo: {
+      agents: {
+        ref(agentId: string) {
+          return {
+            async send(text: string, options: unknown) {
+              sends.push({ agentId, text, options });
+            },
+          };
+        },
+      },
+    },
+  } as unknown as PluginHookContext;
+  const cases: Array<{
+    name: string;
+    event: Pick<PluginLifecycleEvents["agent.turn_ended"], "turnId" | "outcome" | "turnTimeline">;
+    expectedOutput?: string;
+  }> = [
+    {
+      name: "historical response is not repeated when the current turn has no output",
+      event: { turnId: "current", outcome: { kind: "completed" }, turnTimeline: [] },
+    },
+    {
+      name: "canceled turn includes only its incomplete assistant peek",
+      event: {
+        turnId: "current",
+        outcome: { kind: "canceled", reason: "stopped" },
+        turnTimeline: [
+          { type: "assistant_message", text: "PA" },
+          { type: "assistant_message", text: "RTIAL" },
+        ],
+      },
+      expectedOutput: "PARTIAL",
+    },
+    {
+      name: "failed turn includes only its incomplete assistant peek",
+      event: {
+        turnId: "current",
+        outcome: { kind: "failed", error: { message: "provider failed" } },
+        turnTimeline: [
+          { type: "assistant_message", text: "PA" },
+          { type: "assistant_message", text: "RTIAL" },
+        ],
+      },
+      expectedOutput: "PARTIAL",
+    },
+    {
+      name: "unavailable turn attribution does not fall back to the full timeline",
+      event: { turnId: null, outcome: { kind: "failed", error: { message: "provider failed" } } },
+    },
+  ];
+  try {
+    await store.update((state) =>
+      Object.assign(state, { ...emptyState(), agents: [manager, worker] }),
+    );
+    contribute(server as PluginServerContext);
+    assert.deepEqual([...hooks.keys()], ["agent.turn_ended"]);
+    for (const scenario of cases) {
+      await t.test(scenario.name, async () => {
+        sends.length = 0;
+        const event: PluginLifecycleEvents["agent.turn_ended"] = {
+          agent: {
+            id: worker.paseoAgentId,
+            workspaceId: "workspace",
+            parentAgentId: manager.paseoAgentId,
+            provider: "claude",
+            cwd: home,
+            title: null,
+          },
+          timeline: [
+            { type: "assistant_message", text: "OLD" },
+            ...(scenario.event.turnTimeline ?? []),
+          ],
+          ...scenario.event,
+        };
+        await hooks.get("agent.turn_ended")!(event as never, context);
+        assert.deepEqual(
+          sends.map(({ agentId, options }) => ({ agentId, options })),
+          [{ agentId: manager.paseoAgentId, options: { activeTurnBehavior: "steer" } }],
+        );
+        if (scenario.expectedOutput) {
+          assert.ok(sends[0].text.includes(scenario.expectedOutput));
+        } else {
+          assert.ok(!sends[0].text.includes("PARTIAL"));
+        }
+        assert.doesNotMatch(sends[0].text, /OLD/);
+      });
+    }
+  } finally {
+    if (previousHome === undefined) delete process.env.PASEO_HOME;
+    else process.env.PASEO_HOME = previousHome;
     rmSync(home, { recursive: true, force: true });
   }
 });

@@ -5026,11 +5026,23 @@ export class AgentManager {
     );
     this.dispatch({ type: "agent_stream", agentId, event, ...metadata });
     if (this.pluginLifecycle && agent && !agent.internal && event.type !== "timeline") {
+      const turnId =
+        event.type === "turn_completed" ||
+        event.type === "turn_failed" ||
+        event.type === "turn_canceled"
+          ? getAgentStreamEventTurnId(event)
+          : undefined;
       publishAgentStream(
         this.pluginLifecycle,
         describeHookAgent({ ...agent, title: agent.config.title }),
         event,
         this.timelineStore.getItems(agentId),
+        turnId
+          ? this.timelineStore
+              .getRows(agentId)
+              .filter((row) => row.turnId === turnId)
+              .map((row) => row.item)
+          : undefined,
       );
     }
   }

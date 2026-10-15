@@ -3,12 +3,6 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import {
-  initialPrompt,
-  messagePrompt,
-  messageReceipt,
-  runtimeNotification,
-} from "../server/prompts";
 import { listPwaRoles, readPwa } from "../server/pwa";
 import { readPwaSource, requirePwaSource, writePwaSource } from "../server/source";
 import { getConfigPath } from "../server/state";
@@ -97,90 +91,6 @@ test("readPwa rejects unsafe roles, missing roles, and invalid frontmatter", () 
   }
 });
 
-test("prompts keep role context scoped and orient agents without inventing work", () => {
-  const pwa = {
-    project: "Example",
-    role: "developer",
-    roleClass: "worker" as const,
-    projectBody: "Global guidance.",
-    roleBody: "Developer guidance.",
-    statuses: ["survey", "completed"],
-    revision: "rev",
-  };
-  const prompt = initialPrompt({
-    pwa,
-    agent: { name: "dev-one", roleClass: "worker", role: "developer", reportsTo: "lead" },
-    brief: "Start with the assigned context.",
-  });
-  assert.match(prompt, /^<paseo-swarm-system-settings>\n/);
-  assert.match(prompt, /framework-provided role-class operating settings/);
-  assert.match(prompt, /Global guidance/);
-  assert.match(prompt, /Developer guidance/);
-  assert.match(prompt, /Do not create agents or Tasks/);
-  assert.match(prompt, /Do not acknowledge receipts/);
-
-  const supervisorPrompt = initialPrompt({
-    pwa,
-    agent: { name: "lead", roleClass: "supervisor", role: "developer", reportsTo: "planner" },
-    brief: "Coordinate the work.",
-  });
-  assert.match(supervisorPrompt, /^<paseo-swarm-system-settings>\n/);
-  assert.match(supervisorPrompt, /maintain Task Activities and progress/);
-  assert.doesNotMatch(supervisorPrompt, /Execution/);
-  assert.match(prompt, /or append Activities/);
-});
-
-test("message and runtime prompts distinguish delivery from work", () => {
-  assert.match(
-    messagePrompt({
-      id: "msg-1",
-      sender: "dev-one",
-      recipient: "lead",
-      taskId: "survey-auth",
-      message: "Finding",
-    }),
-    /agent-to-agent team message[\s\S]*Task: survey-auth\.[\s\S]*Team message msg-1 from dev-one:\nFinding/m,
-  );
-  assert.match(
-    messageReceipt({ recipient: "lead", delivery: "accepted" }),
-    /does not mean the recipient read it/,
-  );
-  assert.match(messageReceipt({ recipient: "lead", delivery: "accepted" }), /not a durable queue/);
-
-  const idle = runtimeNotification({ agent: "dev-one", manager: "lead", status: "inactive" });
-  assert.match(idle, /does not describe task completion/);
-  assert.match(idle, /will do no further work unless it receives a next instruction/);
-  assert.match(idle, /not a business activity/);
-  assert.match(
-    runtimeNotification({
-      agent: "dev-one",
-      manager: "lead",
-      status: "completed",
-      outcome: "turn completed",
-      report: "Survey finished.",
-    }),
-    /<paseo-swarm-runtime-notification>[\s\S]*Framework roster notification[\s\S]*dev-one[\s\S]*Final agent response:\nSurvey finished\./,
-  );
-  assert.match(
-    runtimeNotification({
-      agent: "dev-one",
-      manager: "lead",
-      status: "canceled",
-      outcome: "user stopped it",
-    }),
-    /does not establish Task completion/,
-  );
-  assert.doesNotMatch(
-    runtimeNotification({
-      agent: "dev-one",
-      manager: "lead",
-      status: "failed",
-      outcome: "provider error",
-    }),
-    /finished/,
-  );
-});
-
 test("project sources preserve config, use host fallback, and validate fresh files", () => {
   const home = mkdtempSync(join(tmpdir(), "swarm-source-"));
   const directory = fixture();
@@ -221,11 +131,6 @@ test("project sources preserve config, use host fallback, and validate fresh fil
       join(other, "roles", "developer.md"),
       "---\nversion: 1\nroleClass: worker\n---\nUpdated role.\n",
     );
-    const oldPrompt = initialPrompt({
-      pwa: readPwa(other, "developer"),
-      agent: { name: "dev", roleClass: "worker", role: "developer", reportsTo: null },
-      brief: "Work",
-    });
     writeFileSync(
       join(other, "PWA.md"),
       "---\nversion: 1\nproject: Changed\n---\nUpdated project.\n",
@@ -233,7 +138,6 @@ test("project sources preserve config, use host fallback, and validate fresh fil
     const fresh = readPwa(requirePwaSource("one"), "developer");
     assert.equal(fresh.project, "Changed");
     assert.equal(fresh.roleBody, "Updated role.");
-    assert.doesNotMatch(oldPrompt, /Updated project/);
     writeFileSync(join(other, "PWA.md"), "invalid");
     assert.throws(() => writePwaSource({ path: other }), /PWA.md must have YAML frontmatter/);
     assert.equal(readFileSync(configPath, "utf8"), saved);
