@@ -1,11 +1,8 @@
 npmRebuild: false
-appId: sh.paseo.desktop
-productName: Paseo
-executableName: Paseo
-protocols:
-  - name: Paseo agent link
-    schemes:
-      - paseo
+appId: local.sevenmile.paseo.swarm
+productName: Paseo Swarm
+executableName: Paseo Swarm
+protocols: []
 afterPack: ./scripts/after-pack.js
 afterSign: ./scripts/after-sign.js
 directories:
@@ -35,17 +32,15 @@ extraResources:
     to: app-dist
   - from: assets/editor-targets
     to: editor-target-icons
-publish:
-  provider: github
-  owner: getpaseo
-  repo: paseo
+publish: null
 mac:
-  artifactName: "Paseo-${version}-${arch}.${ext}"
+  artifactName: "Paseo-Swarm-${version}-${arch}.${ext}"
   minimumSystemVersion: "13.0.0"
   category: public.app-category.developer-tools
   icon: assets/icon.icns
   hardenedRuntime: true
-  notarize: true
+  notarize: false
+  identity: "-"
   entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.inherit.plist
   extraResources:
@@ -59,7 +54,7 @@ mac:
 linux:
   category: Development
   icon: assets
-  artifactName: "Paseo-${version}-${arch}.${ext}"
+  artifactName: "Paseo-Swarm-${version}-${arch}.${ext}"
   maintainer: "Mohamed Boudra <hello@moboudra.com>"
   vendor: "Paseo"
   extraResources:

@@ -29,6 +29,28 @@ the titlebar row. Production builds leave the variable unset and show no label.
 
 `npm run dev` is only a shorthand for `npm run dev:server`. Keep `127.0.0.1:6767` for the packaged app and production-style `~/.paseo` state.
 
+## Local Swarm macOS release
+
+For this fork, run `npm run release:local` from the checkout, or double-click
+`release-local.command`. It builds the current local source, installs
+`/Applications/Paseo Swarm.app`, registers it with Launch Services, requests
+Spotlight indexing, and checks the running daemon and Swarm board. It does not
+pull Git changes or publish a release. Local uncommitted changes are included.
+
+The command stops before installation if Swarm agents are running. It builds
+and verifies the replacement before stopping the old app, keeps one previous
+bundle, and restores it if startup verification fails. Backend data stays in
+`~/.paseo-swarm`; client data stays in
+`~/Library/Application Support/Paseo Swarm`. The official Paseo app is separate.
+
+Release logs and a source/health record are stored under
+`~/.paseo-swarm-releases/runs/`. The previous bundle is under
+`~/.paseo-swarm-releases/previous/`. Use
+`npm run release:local -- --install-only` to reinstall an already-built artifact
+without rebuilding; its source may differ from the current checkout. Spotlight
+indexing is asynchronous: a successful release reports whether the app is
+already indexed and does not claim that registration guarantees search results.
+
 ## Nix desktop package
 
 The flake exposes `packages.<system>.desktop` on Linux and macOS:
