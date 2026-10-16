@@ -16,6 +16,8 @@ import { describe, expect, it } from "vitest";
 
 const require = createRequire(import.meta.url);
 const { load } = require("js-yaml");
+const { AppInfo } = require("app-builder-lib/out/appInfo");
+const FpmTarget = require("app-builder-lib/out/targets/FpmTarget").default;
 const { installLinuxLauncher } = require("../../scripts/linux-sandbox");
 
 const packageRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -68,6 +70,21 @@ function createFakeMacBundle(options: { includeHelper: boolean }): {
 }
 
 describe("desktop packaging", () => {
+  it.each(["deb", "rpm"])(
+    "generates a valid %s package identifier for the Swarm product",
+    async (target) => {
+      const config = load(readFileSync(join(packageRoot, "electron-builder.yml"), "utf8"));
+      const metadata = JSON.parse(readFileSync(join(packageRoot, "package.json"), "utf8"));
+      const appInfo = new AppInfo({ config, metadata }, undefined, config.linux);
+      const metadataOptions = await FpmTarget.prototype.computeFpmMetaInfoOptions.call({
+        options: { ...config.linux, ...config[target] },
+        packager: { appInfo, info: { metadata } },
+      });
+      expect(metadataOptions.name).toMatch(/^[a-z0-9][a-z0-9+.-]+$/);
+      expect(metadataOptions.name).toBe("paseo-swarm");
+    },
+  );
+
   it("wraps the executable selected by the Linux builder configuration", () => {
     const config = load(readFileSync(join(packageRoot, "electron-builder.yml"), "utf8"));
     const executableName = config.linux.executableName ?? config.executableName;

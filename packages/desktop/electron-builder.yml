@@ -67,9 +67,12 @@ linux:
     - deb
     - rpm
     - tar.gz
+# Package identifiers cannot contain spaces, unlike the displayed product name.
 deb:
+  packageName: paseo-swarm
   afterInstall: scripts/linux-sandbox/after-install.tpl
 rpm:
+  packageName: paseo-swarm
   afterInstall: scripts/linux-sandbox/after-install.tpl
 appImage:
   # A nonempty argument list replaces builder's hardcoded --no-sandbox default.
