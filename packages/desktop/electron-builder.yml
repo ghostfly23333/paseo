@@ -51,9 +51,8 @@ mac:
   target:
     - dmg
     - zip
-# The Linux sandbox launcher and desktop entry use this stable executable name.
 linux:
-  executableName: Paseo
+  executableName: paseo-swarm
   category: Development
   icon: assets
   artifactName: "Paseo-Swarm-${version}-${arch}.${ext}"
@@ -76,7 +75,7 @@ rpm:
   afterInstall: scripts/linux-sandbox/after-install.tpl
 appImage:
   # A nonempty argument list replaces builder's hardcoded --no-sandbox default.
-  executableArgs: ["--class=Paseo"]
+  executableArgs: ['--class="Paseo Swarm"']
   # Keep the AppImage filename stable across versions (no ${version}) so
   # electron-updater overwrites the file in place instead of renaming it to a new
   # versioned path. A rename orphans the old binary, breaks desktop shortcuts, and

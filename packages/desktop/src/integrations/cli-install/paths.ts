@@ -12,6 +12,7 @@ export function getCliTargetPath(): string {
 }
 
 export function getBundledCliShimPath(): string {
+  // The public command is paseo-swarm; this private resource keeps its upstream basename.
   const cliShimFilename = process.platform === "win32" ? "paseo.cmd" : "paseo";
 
   if (process.platform === "darwin") {

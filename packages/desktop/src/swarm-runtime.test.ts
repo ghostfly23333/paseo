@@ -11,7 +11,11 @@ const { app } = vi.hoisted(() => ({
   },
 }));
 vi.mock("electron", () => ({ app }));
-import { configureSwarmRuntime, ensureSwarmDaemonConfig } from "./swarm-runtime";
+import {
+  configureSwarmRuntime,
+  ensureSwarmDaemonConfig,
+  initializeSwarmRuntime,
+} from "./swarm-runtime";
 
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -20,11 +24,11 @@ afterEach(() => {
 });
 
 describe("standalone Swarm isolation", () => {
-  it("overrides inherited official state and disables upstream updates", () => {
+  it("defaults to separate Swarm state and disables upstream updates", () => {
     app.isPackaged = true;
-    vi.stubEnv("PASEO_HOME", "/official/state");
-    vi.stubEnv("PASEO_LISTEN", "127.0.0.1:6767");
-    vi.stubEnv("PASEO_ELECTRON_USER_DATA_DIR", "/official/client");
+    vi.stubEnv("PASEO_HOME", undefined);
+    vi.stubEnv("PASEO_LISTEN", undefined);
+    vi.stubEnv("PASEO_ELECTRON_USER_DATA_DIR", undefined);
     vi.stubEnv("PASEO_DISABLE_APP_UPDATES", undefined);
     configureSwarmRuntime();
     expect(process.env.PASEO_HOME).toBe(path.join(os.homedir(), ".paseo-swarm"));
@@ -36,14 +40,11 @@ describe("standalone Swarm isolation", () => {
     expect(process.env.PASEO_DISABLE_APP_UPDATES).toBe("1");
   });
 
-  it("supports explicit Swarm QA paths and port", () => {
+  it("honors existing Paseo overrides for paths and port", () => {
     app.isPackaged = true;
-    vi.stubEnv("PASEO_SWARM_HOME", "/qa/state");
-    vi.stubEnv("PASEO_SWARM_LISTEN", "127.0.0.1:16769");
-    vi.stubEnv("PASEO_SWARM_USER_DATA_DIR", "/qa/client");
-    vi.stubEnv("PASEO_HOME", undefined);
-    vi.stubEnv("PASEO_LISTEN", undefined);
-    vi.stubEnv("PASEO_ELECTRON_USER_DATA_DIR", undefined);
+    vi.stubEnv("PASEO_HOME", "/qa/state");
+    vi.stubEnv("PASEO_LISTEN", "127.0.0.1:16769");
+    vi.stubEnv("PASEO_ELECTRON_USER_DATA_DIR", "/qa/client");
     vi.stubEnv("PASEO_DISABLE_APP_UPDATES", undefined);
     configureSwarmRuntime();
     expect(process.env.PASEO_HOME).toBe("/qa/state");
@@ -60,6 +61,39 @@ describe("standalone Swarm isolation", () => {
 });
 
 describe("managed Swarm daemon config", () => {
+  it("does not treat the runtime default as an explicit endpoint override", () => {
+    const home = mkdtempSync(path.join(os.tmpdir(), "swarm-config-"));
+    const file = path.join(home, "config.json");
+    try {
+      app.isPackaged = true;
+      vi.stubEnv("PASEO_HOME", home);
+      vi.stubEnv("PASEO_LISTEN", undefined);
+      vi.stubEnv("PASEO_ELECTRON_USER_DATA_DIR", "/qa/client");
+      writeFileSync(file, JSON.stringify({ version: 1, daemon: { listen: "127.0.0.1:17777" } }));
+      initializeSwarmRuntime();
+      expect(JSON.parse(readFileSync(file, "utf8")).daemon.listen).toBe("127.0.0.1:17777");
+      vi.stubEnv("PASEO_LISTEN", "127.0.0.1:18888");
+      initializeSwarmRuntime();
+      expect(JSON.parse(readFileSync(file, "utf8")).daemon.listen).toBe("127.0.0.1:18888");
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+  it("defaults a new home to 6769 and preserves a configured endpoint unless overridden", () => {
+    const home = mkdtempSync(path.join(os.tmpdir(), "swarm-config-"));
+    const file = path.join(home, "config.json");
+    try {
+      ensureSwarmDaemonConfig(home);
+      expect(JSON.parse(readFileSync(file, "utf8")).daemon.listen).toBe("127.0.0.1:6769");
+      writeFileSync(file, JSON.stringify({ version: 1, daemon: { listen: "127.0.0.1:6767" } }));
+      ensureSwarmDaemonConfig(home);
+      expect(JSON.parse(readFileSync(file, "utf8")).daemon.listen).toBe("127.0.0.1:6767");
+      ensureSwarmDaemonConfig(home, "127.0.0.1:17777");
+      expect(JSON.parse(readFileSync(file, "utf8")).daemon.listen).toBe("127.0.0.1:17777");
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
   it("persists a separate port and keeps unrelated settings", () => {
     const home = mkdtempSync(path.join(os.tmpdir(), "swarm-config-"));
     try {
