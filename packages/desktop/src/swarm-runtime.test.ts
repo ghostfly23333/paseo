@@ -29,7 +29,10 @@ describe("standalone Swarm isolation", () => {
     configureSwarmRuntime();
     expect(process.env.PASEO_HOME).toBe(path.join(os.homedir(), ".paseo-swarm"));
     expect(process.env.PASEO_LISTEN).toBe("127.0.0.1:6769");
-    expect(app.setPath).toHaveBeenCalledWith("userData", "/test/Application Support/Paseo Swarm");
+    expect(app.setPath).toHaveBeenCalledWith(
+      "userData",
+      path.join("/test/Application Support", "Paseo Swarm"),
+    );
     expect(process.env.PASEO_DISABLE_APP_UPDATES).toBe("1");
   });
 

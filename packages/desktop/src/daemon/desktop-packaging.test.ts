@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { createRequire } from "node:module";
 import {
   chmodSync,
   copyFileSync,
@@ -12,6 +13,10 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+
+const require = createRequire(import.meta.url);
+const { load } = require("js-yaml");
+const { installLinuxLauncher } = require("../../scripts/linux-sandbox");
 
 const packageRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
@@ -63,6 +68,22 @@ function createFakeMacBundle(options: { includeHelper: boolean }): {
 }
 
 describe("desktop packaging", () => {
+  it("wraps the executable selected by the Linux builder configuration", () => {
+    const config = load(readFileSync(join(packageRoot, "electron-builder.yml"), "utf8"));
+    const executableName = config.linux.executableName ?? config.executableName;
+    const root = mkdtempSync(join(tmpdir(), "paseo-linux-packaging-"));
+    try {
+      writeFileSync(join(root, executableName), "electron executable");
+      installLinuxLauncher(root);
+      expect(readFileSync(join(root, `${executableName}.bin`), "utf8")).toBe("electron executable");
+      expect(readFileSync(join(root, executableName), "utf8")).toBe(
+        readFileSync(join(packageRoot, "scripts", "linux-sandbox", "launcher.sh"), "utf8"),
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("uses an Electron runtime whose Squirrel handoff explicitly wakes ShipIt", () => {
     const pkg = JSON.parse(readFileSync(join(packageRoot, "package.json"), "utf8")) as {
       devDependencies?: Record<string, string>;

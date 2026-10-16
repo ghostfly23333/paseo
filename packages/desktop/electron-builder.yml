@@ -51,7 +51,9 @@ mac:
   target:
     - dmg
     - zip
+# The Linux sandbox launcher and desktop entry use this stable executable name.
 linux:
+  executableName: Paseo
   category: Development
   icon: assets
   artifactName: "Paseo-Swarm-${version}-${arch}.${ext}"
